@@ -1,0 +1,61 @@
+x-portal: &portal
+  image: ecoreason-portal:local
+  build: .
+
+x-search-env: &search-env
+  ECO_QDRANT_URL: http://qdrant:6333
+  FASTEMBED_CACHE_PATH: /data/embeddings
+  HF_HOME: /data/huggingface
+
+services:
+  app:
+    <<: *portal
+    ports:
+      - "127.0.0.1:8000:7860"
+    environment:
+      <<: *search-env
+      ECO_ENABLE_LIVE: ${ECO_ENABLE_LIVE:-0}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ECO_INTAKE_MODEL: ${ECO_INTAKE_MODEL:-}
+      ECO_DISCOVERY_MODEL: ${ECO_DISCOVERY_MODEL:-}
+      ECO_EXTRACTION_MODEL: ${ECO_EXTRACTION_MODEL:-}
+      ECO_ASSESSMENT_MODEL: ${ECO_ASSESSMENT_MODEL:-}
+    volumes:
+      - portal-data:/data
+    depends_on:
+      index:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", ".venv/bin/python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:7860/healthz', timeout=3).close()"]
+      interval: 5s
+      timeout: 4s
+      retries: 5
+      start_period: 15s
+  ui:
+    <<: *portal
+    command: [".venv/bin/python", "-m", "streamlit", "run", "ecoportal/ui.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--browser.gatherUsageStats=false", "--client.toolbarMode=minimal"]
+    environment:
+      ECO_API_URL: http://app:7860
+    ports:
+      - "127.0.0.1:7860:8501"
+    depends_on:
+      app:
+        condition: service_healthy
+  qdrant:
+    image: qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes:
+      - qdrant-index:/qdrant/storage
+  index:
+    <<: *portal
+    command: [".venv/bin/python", "-m", "ecoportal.retrieval", "--initialize"]
+    environment: *search-env
+    volumes:
+      - portal-data:/data
+    depends_on:
+      - qdrant
+
+volumes:
+  portal-data:
+  qdrant-index:

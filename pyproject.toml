@@ -1,0 +1,30 @@
+[project]
+name = "eco-reason-portal"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "aiohttp>=3.11,<4",
+    "aiosqlite",
+    "fastapi",
+    "httpx>=0.28.1",
+    "langchain>=1,<2",
+    "langchain-openrouter",
+    "langgraph>=1,<2",
+    "langgraph-checkpoint-sqlite",
+    "pydantic>=2,<3",
+    "qdrant-client[fastembed]>=1.15,<2",
+    "statsmodels>=0.14,<0.15",
+    "streamlit>=1.50,<2",
+    "tiktoken",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "ruff"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

@@ -1,0 +1,38 @@
+[
+  {
+    "key": "crayfish",
+    "question": "Does excluding red swamp crayfish help submerged plants establish in shallow lakes?",
+    "doi": "10.1371/journal.pone.0078579",
+    "title": "Invasive Crayfish Threaten the Development of Submerged Macrophytes in Lake Restoration",
+    "tags": "Procambarus clarkii red swamp crayfish exclosure plant biomass clear water lake Terra Nova",
+    "locator": "Results, macrophyte growth and survival",
+    "passage": "Free herbivore access strongly reduced survival and growth of all three macrophytes, which produced most biomass when fully protected from grazing",
+    "source": "Crayfish access",
+    "target": "Transplanted macrophyte biomass",
+    "direction": "decrease",
+    "design": "experiment",
+    "comparator": "Full exclosure compared with a crayfish-only enclosure; the excerpt describes grazing treatments collectively.",
+    "finding": "Plant growth and survival varied across grazing treatments. Fully protected plants produced the most biomass.",
+    "scope": "Plots in a restored shallow Dutch peat lake under favourable abiotic conditions.",
+    "summary": "The enclosure study supports reduced plant performance with herbivore access in the setting studied. It used transplanted plants and tested grazing treatments at plot scale. Natural establishment and whole-lake recovery are separate outcomes.",
+    "gap": "Evidence for recovery under turbid conditions or at whole-lake scale needs a matched comparison."
+  },
+  {
+    "key": "enemy_release",
+    "question": "Is enemy release a good explanation for invasion success?",
+    "doi": "10.1007/s10526-011-9349-7",
+    "title": "Can the enemy release hypothesis explain the success of invasive alien predators and parasitoids?",
+    "tags": "enemy release invasion success natural enemy regulation predators parasitoids",
+    "locator": "Abstract",
+    "passage": "Many studies equate a reduction in the number of natural enemies associated with an alien species to release without studying population effects",
+    "source": "Reduced natural enemy regulation",
+    "target": "Invader population growth",
+    "direction": "increase",
+    "design": "hypothesized mechanism",
+    "comparator": "Not established by the cited review excerpt.",
+    "finding": "The review distinguishes counting natural enemies from measuring their effects on invader populations.",
+    "scope": "Proposed mechanism reviewed for invasive alien predators and parasitoids.",
+    "summary": "Enemy release is a candidate mechanism. The review highlights the gap between measuring fewer enemies and testing whether that change increases population growth.",
+    "gap": "Look for comparable populations or manipulations that measure both enemy pressure and invasion performance."
+  }
+]

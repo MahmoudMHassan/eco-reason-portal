@@ -1,0 +1,91 @@
+{
+  "hypothesis": {
+    "id": "string",
+    "name": "string",
+    "level": "theory | mechanistic | operational",
+    "parent_id": "string | null",
+    "description": "string",
+    "sub_hypotheses": [],
+    "causal_graph": {
+      "nodes": [],
+      "edges": [
+        {
+          "source": "string",
+          "target": "string",
+          "direction": "positive | negative | mixed | unknown"
+        }
+      ]
+    }
+  },
+  "causal_model": {
+    "variables": [],
+    "relationships": [],
+    "moderators": [],
+    "mediators": [],
+    "confounders": []
+  },
+  "experiment": {
+    "id": "string",
+    "design_type": "field | lab | observational",
+    "study_type": "experimental | observational | synthesis",
+    "interventions": [],
+    "controls": [],
+    "replication": {
+      "n_replicates": "number",
+      "unit": "string"
+    },
+    "duration": {
+      "value": "number",
+      "unit": "days | months | years"
+    },
+    "sampling_protocol": "string",
+    "outcomes_measured": []
+  },
+  "evidence": {
+    "id": "string",
+    "type": "observational | experimental | meta-analysis",
+    "strength": "weak | moderate | strong",
+    "direction": "support | contradict | mixed",
+    "effect_size": {
+      "metric": "string",
+      "value": "number",
+      "confidence_interval": []
+    },
+    "statistical_support": {
+      "p_value": "number | null",
+      "model_type": "string | null"
+    },
+    "evidence_summary": "string"
+  },
+  "context": {
+    "ecosystem": "grassland | forest | aquatic | wetland | other",
+    "scale": "plot | landscape | regional | global",
+    "biome": "string",
+    "geographic_region": "string",
+    "stress_level": "low | moderate | high | unknown",
+    "disturbance": "string",
+    "climate_conditions": {},
+    "temporal_context": {}
+  },
+  "intervention_outcome": {
+    "action": "string",
+    "expected_effect": [],
+    "observed_effect": [],
+    "interpretation": "string"
+  },
+  "paper": {
+    "id": "string",
+    "title": "string",
+    "doi": "string",
+    "year": "number",
+    "authors": [],
+    "venue": "string"
+  },
+  "links": {
+    "tests_hypothesis": [],
+    "uses_design": [],
+    "produces_evidence": [],
+    "documents_intervention_outcome": [],
+    "reported_in_paper": []
+  }
+}

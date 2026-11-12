@@ -1,0 +1,13 @@
+*
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!ecoportal/
+!ecoportal/**
+!forked/
+!forked/**
+!examples/
+!examples/**
+!data/
+!data/**
+**/__pycache__
