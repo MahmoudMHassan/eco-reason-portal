@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import httpx
@@ -11,6 +12,10 @@ from ecoportal.causal import CASE, QUESTION
 from ecoportal.corpus import EXAMPLE_STUDIES, doi_url
 
 API_URL = os.getenv("ECO_API_URL", "http://127.0.0.1:8000")
+UI_ASSETS = Path(__file__).with_name("ui_assets")
+INTRODUCTION = (
+    "Ask an invasion ecology question or test a hypothesis against published evidence."
+)
 
 
 def api(method, path, payload=None, timeout=5):
@@ -177,11 +182,28 @@ def render_review(claims, workspace):
                     st.rerun()
 
 
-st.set_page_config(page_title="EcoReason Portal", layout="centered")
-st.title("EcoReason Portal")
-st.write(
-    "Ask an invasion ecology question or test a hypothesis against published evidence."
+st.set_page_config(
+    page_title="EcoReason Portal",
+    layout="wide",
+    # Keep the native theme menu available in the Docker UI's minimal toolbar.
+    menu_items={"About": INTRODUCTION},
 )
+st.html(UI_ASSETS / "layout.css")
+with st.container(
+    key="portal_header",
+    horizontal=True,
+    horizontal_alignment="distribute",
+    vertical_alignment="center",
+):
+    st.title("EcoReason Portal", anchor=False, width="content")
+    with st.container(horizontal=True, width="content", vertical_alignment="center"):
+        corpus_status = st.empty()
+        st.button("New chat", icon=":material/add:", on_click=start_new_chat)
+        st.html(
+            UI_ASSETS / "theme_toggle.html",
+            width="content",
+            unsafe_allow_javascript=True,
+        )
 
 try:
     health = api("GET", "/healthz")
@@ -204,20 +226,25 @@ except httpx.HTTPError:
 
 workspace = st.session_state.workspace
 turns = st.session_state.turns
-st.caption(f"{health['mode'].title()} mode · {health['papers']:,} papers in the corpus")
-st.button("New chat", on_click=start_new_chat)
-research_mode = st.toggle("Analyze a hypothesis")
-preset = None
-if st.button("Try a causal analysis", type="primary"):
-    preset = CASE
-with st.popover("Example questions"):
-    for key, label in (
-        (CASE, "Crayfish diet and growth"),
-        ("crayfish", "Crayfish and lake restoration"),
-        ("enemy_release", "Enemy release"),
-    ):
-        if st.button(label):
-            preset = key
+corpus_status.caption(
+    f"{health['mode'].title()} mode · {health['papers']:,} papers in the corpus",
+    width="content",
+)
+if not turns:
+    st.write(INTRODUCTION)
+with st.container(
+    key="research_controls", horizontal=True, vertical_alignment="center"
+):
+    research_mode = st.toggle("Analyze a hypothesis")
+    preset = CASE if st.button("Try a causal analysis", type="primary") else None
+    with st.popover("Example questions"):
+        for key, label in (
+            (CASE, "Crayfish diet and growth"),
+            ("crayfish", "Crayfish and lake restoration"),
+            ("enemy_release", "Enemy release"),
+        ):
+            if st.button(label):
+                preset = key
 
 for turn_index, turn in enumerate(turns):
     with st.chat_message("user"):

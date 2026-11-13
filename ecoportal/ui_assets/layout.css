@@ -1,0 +1,66 @@
+.stApp [data-testid="stMainBlockContainer"],
+.stApp [data-testid="stBottomBlockContainer"] {
+    max-width: 80rem;
+    padding-inline: clamp(1rem, 3vw, 2.5rem);
+}
+
+[data-testid="stLayoutWrapper"]:has(> .st-key-portal_header) {
+    position: sticky;
+    top: 3.75rem; /* Streamlit's toolbar height. */
+    z-index: 2;
+}
+
+.st-key-portal_header {
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid light-dark(#dfe1e7, #3c414d);
+    background: light-dark(#fff, #15171c);
+}
+
+.st-key-portal_header h1 {
+    padding: 0;
+    font-size: 1.5rem;
+    line-height: 1.25;
+}
+
+.stApp [data-testid="stChatMessageContent"] :is(p, ul, ol) {
+    max-inline-size: 66ch;
+}
+
+.st-key-research_controls [data-testid="stBaseButton-primary"] {
+    color: light-dark(#fff, #271417);
+}
+
+#portal-theme-toggle {
+    display: inline-grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    border: 1px solid light-dark(#898d97, #778091);
+    border-radius: 50%;
+    background: light-dark(#f5f6f9, #20232b);
+    color: inherit;
+    font: 1.25rem/1 "Material Symbols Rounded";
+    cursor: pointer;
+}
+
+#portal-theme-toggle:hover {
+    background: light-dark(#e8ebf0, #303540);
+}
+
+#portal-theme-toggle:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+    #portal-theme-toggle {
+        min-width: 44px;
+        min-height: 44px;
+    }
+}
+
+body[data-portal-switching-theme] [data-testid="stMainMenuPopover"] {
+    opacity: 0;
+    pointer-events: none;
+}

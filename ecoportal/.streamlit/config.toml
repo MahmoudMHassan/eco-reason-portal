@@ -1,0 +1,17 @@
+[theme]
+base = "light"
+paddingTop = "0.75rem"
+
+[theme.light]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+primaryColor = "#C73642"
+borderColor = "#DFE1E7"
+
+[theme.dark]
+backgroundColor = "#15171C"
+secondaryBackgroundColor = "#272B35"
+textColor = "#EEF0F5"
+primaryColor = "#FF8388"
+borderColor = "#3C414D"

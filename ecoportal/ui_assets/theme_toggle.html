@@ -1,0 +1,70 @@
+<button id="portal-theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">
+    <span aria-hidden="true">dark_mode</span>
+</button>
+<script>
+(() => {
+    const toggle = document.getElementById("portal-theme-toggle");
+    const app = toggle.closest('[data-testid="stApp"]');
+    const icon = toggle.firstElementChild;
+    const isDark = () => getComputedStyle(app).colorScheme === "dark";
+
+    function updateButton() {
+        const dark = isDark();
+        const label = dark ? "Switch to light mode" : "Switch to dark mode";
+        toggle.setAttribute("aria-label", label);
+        toggle.title = label;
+        icon.textContent = dark ? "light_mode" : "dark_mode";
+    }
+
+    function switchTheme(theme) {
+        const menu = app.querySelector('[data-testid="stMainMenuButton"]');
+        if (!menu || document.body.hasAttribute("data-portal-switching-theme")) return;
+
+        // Use Streamlit's theme menu so native controls and overlays share the same palette.
+        const restoreFocus = document.activeElement === toggle;
+        const wasOpen = menu.getAttribute("aria-expanded") === "true";
+        const optionSelector = `[data-testid="stMainMenuItem-theme-${theme}"]`;
+        let timeout;
+        const observer = new MutationObserver(selectTheme);
+
+        function finish() {
+            observer.disconnect();
+            clearTimeout(timeout);
+            if (!wasOpen && menu.getAttribute("aria-expanded") === "true") menu.click();
+            document.body.removeAttribute("data-portal-switching-theme");
+            if (restoreFocus) requestAnimationFrame(() => toggle.focus({ preventScroll: true }));
+        }
+
+        function selectTheme() {
+            const option = document.querySelector(optionSelector);
+            if (option) {
+                option.click();
+                finish();
+            }
+        }
+
+        document.body.setAttribute("data-portal-switching-theme", "");
+        timeout = setTimeout(finish, 1000);
+        if (wasOpen) {
+            selectTheme();
+            return;
+        }
+        observer.observe(document.body, { childList: true, subtree: true });
+        menu.click();
+    }
+
+    toggle.addEventListener("click", () => switchTheme(isDark() ? "Light" : "Dark"));
+
+    // The app element survives Streamlit reruns. Reset the theme only on a new page load.
+    if (!app.hasAttribute("data-portal-theme-initialized")) {
+        app.setAttribute("data-portal-theme-initialized", "");
+        const appearance = new MutationObserver(() => {
+            app.querySelector("#portal-theme-toggle")?.dispatchEvent(new Event("portal-theme-changed"));
+        });
+        appearance.observe(app, { attributes: true, attributeFilter: ["class"] });
+        if (isDark()) switchTheme("Light");
+    }
+    toggle.addEventListener("portal-theme-changed", updateButton);
+    updateButton();
+})();
+</script>
