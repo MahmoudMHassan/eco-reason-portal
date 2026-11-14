@@ -27,6 +27,7 @@ from .retrieval import HybridSearch
 from .reviews import ReviewStore
 from .workflow import (
     COMPARISON_GAP,
+    EXTRACTION_PAPER_LIMIT,
     LITERATURE_GAP,
     LiveModels,
     build_workflow,
@@ -41,6 +42,7 @@ class Turn(BaseModel):
     message: str = Field(min_length=1, max_length=2500)
     preset: Literal["crayfish", "enemy_release", "diet_growth"] | None = None
     mode: Literal["chat", "research"] = "research"
+    deep_search: bool = False
 
 
 class Review(BaseModel):
@@ -59,7 +61,9 @@ class Portal:
         self.graph = graph
         self.live = live
 
-    async def ask(self, workspace, message, preset=None, mode="research"):
+    async def ask(
+        self, workspace, message, preset=None, mode="research", deep_search=False
+    ):
         if not message.strip() or len(message) > 2500:
             raise ValueError("Enter a question between 1 and 2,500 characters.")
         result = await asyncio.wait_for(
@@ -69,6 +73,7 @@ class Portal:
                     "message": message,
                     "preset": preset,
                     "mode": mode,
+                    "deep_search": deep_search,
                 },
                 {"configurable": {"thread_id": workspace}},
             ),
@@ -120,7 +125,9 @@ class Portal:
             "passages": await asyncio.to_thread(
                 overview_passages if literature_search else source_passages,
                 self.corpus,
-                result["hits"] if literature_search else result["hits"][:3],
+                result["hits"]
+                if literature_search
+                else result["hits"][:EXTRACTION_PAPER_LIMIT],
                 result["request"]["query"],
             )
             if not result["evidence"]
@@ -174,7 +181,11 @@ def create_app(data_dir=None):
     async def turn(payload: Turn):
         try:
             return await app.state.portal.ask(
-                str(payload.workspace), payload.message, payload.preset, payload.mode
+                str(payload.workspace),
+                payload.message,
+                payload.preset,
+                payload.mode,
+                deep_search=payload.deep_search,
             )
         except (OutputParserException, JSONDecodeError) as error:
             raise HTTPException(

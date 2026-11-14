@@ -214,8 +214,17 @@ async def generate_serp_queries(query: str, num_queries: int = 3, learnings: Opt
         response_format=schema
     )
 
-    parsed = json.loads(result.choices[0].message.content)
-    return parsed["queries"][:num_queries]
+    parsed = json.loads(result.choices[0].message.content or "")
+    queries = parsed.get("queries") if isinstance(parsed, dict) else None
+    if not isinstance(queries, list) or any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("query"), str)
+        or not item["query"].strip()
+        or not isinstance(item.get("researchGoal"), str)
+        for item in queries
+    ):
+        raise json.JSONDecodeError("Invalid search plan", "", 0)
+    return queries[:num_queries]
 
 
 async def process_serp_result(
@@ -302,10 +311,29 @@ Return a maximum of {num_followups} follow-up questions, but fewer is okay if th
     )
 
     # Step 5: Parse and return the result
-    parsed = json.loads(completion.choices[0].message.content)
+    parsed = json.loads(completion.choices[0].message.content or "")
+    if not isinstance(parsed, dict) or any(
+        not isinstance(parsed.get(key), list)
+        or any(not isinstance(item, str) for item in parsed[key])
+        for key in ("learnings", "followUpQuestions")
+    ):
+        raise json.JSONDecodeError("Invalid search summary", "", 0)
     return parsed
 
-async def deep_research(query: str, breadth: int, depth: int, learnings=None, visited_urls=None, on_progress: Optional[Callable] = None, *, search=None, completion=complete, summarize_leaves=True):
+
+async def deep_research(
+    query: str,
+    breadth: int,
+    depth: int,
+    learnings=None,
+    visited_urls=None,
+    on_progress: Optional[Callable] = None,
+    *,
+    search=None,
+    completion=complete,
+    summarize_leaves=True,
+    on_branch_error: Optional[Callable[[Exception], bool]] = None,
+):
     search = search if search is not None else get_search_client(os.getenv("RESEARCH_PROVIDER", "firecrawl"))
     learnings = learnings or []
     visited_urls = visited_urls or []
@@ -330,6 +358,7 @@ async def deep_research(query: str, breadth: int, depth: int, learnings=None, vi
     report({"totalQueries": len(serp_queries), "currentQuery": serp_queries[0]["query"]})
 
     async def run_query(serp_query):
+        updated_learnings, updated_urls = learnings, visited_urls
         try:
             result = await search.search(serp_query["query"])
             if "data" in result:
@@ -339,31 +368,48 @@ async def deep_research(query: str, breadth: int, depth: int, learnings=None, vi
                 urls = list({item.get("urls", [None])[0] for item in items if item.get("urls")})
             else:
                 urls = []
+            updated_urls = visited_urls + urls
             if depth == 1 and not summarize_leaves:
                 report({"currentDepth": 0, "completedQueries": progress["completedQueries"] + 1})
-                return {"learnings": learnings, "visitedUrls": visited_urls + urls}
+                return {"learnings": learnings, "visitedUrls": updated_urls}
             follow = await process_serp_result(serp_query["query"], result, num_followups=breadth, completion=completion)
             new_learnings = follow["learnings"]
             new_followups = follow["followUpQuestions"]
 
             updated_learnings = learnings + new_learnings
-            updated_urls = visited_urls + urls
 
             if depth > 1 and new_followups:
                 report({"currentDepth": depth - 1, "completedQueries": progress["completedQueries"] + 1})
                 next_query = f"Previous research goal: {serp_query['researchGoal']}\nFollow-up: {'; '.join(new_followups)}"
-                return await deep_research(next_query, breadth=max(1, breadth//2), depth=depth-1, learnings=updated_learnings, visited_urls=updated_urls, on_progress=on_progress, search=search, completion=completion, summarize_leaves=summarize_leaves)
+                return await deep_research(
+                    next_query,
+                    breadth=max(1, breadth // 2),
+                    depth=depth - 1,
+                    learnings=updated_learnings,
+                    visited_urls=updated_urls,
+                    on_progress=on_progress,
+                    search=search,
+                    completion=completion,
+                    summarize_leaves=summarize_leaves,
+                    on_branch_error=on_branch_error,
+                )
             else:
                 report({"currentDepth": 0, "completedQueries": progress["completedQueries"] + 1})
                 return {"learnings": updated_learnings, "visitedUrls": updated_urls}
-        except Exception:
+        except Exception as error:
+            if on_branch_error and on_branch_error(error):
+                return {"learnings": updated_learnings, "visitedUrls": updated_urls}
             if getattr(search, "raise_errors", False):
                 raise
             return {"learnings": [], "visitedUrls": []}
 
-    results = await asyncio.gather(*(run_query(q) for q in serp_queries))
+    results = await asyncio.gather(
+        *(run_query(q) for q in serp_queries), return_exceptions=True
+    )
     combined = defaultdict(set)
     for res in results:
+        if isinstance(res, BaseException):
+            raise res
         combined["learnings"].update(res["learnings"])
         combined["visitedUrls"].update(res["visitedUrls"])
     return {"learnings": list(combined["learnings"]), "visitedUrls": list(combined["visitedUrls"])}

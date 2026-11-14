@@ -35,7 +35,7 @@ def render_answer(answer, turn_index):
     st.write(answer["assessment"]["summary"])
     if answer.get("discovery_fallback"):
         st.caption(
-            "Search continued locally after the planner returned incomplete output."
+            "DeepResearch could not finish. The available search results were used."
         )
     result = answer["causal_result"]
     kind = result["kind"]
@@ -236,6 +236,11 @@ with st.container(
     key="research_controls", horizontal=True, vertical_alignment="center"
 ):
     research_mode = st.toggle("Analyze a hypothesis")
+    deep_search = st.toggle(
+        "Use DeepResearch",
+        disabled=research_mode or health["mode"] != "live",
+        help="Run follow-up literature searches in chat. This can take longer.",
+    )
     preset = CASE if st.button("Try a causal analysis", type="primary") else None
     with st.popover("Example questions"):
         for key, label in (
@@ -271,6 +276,7 @@ if message:
                     "message": message,
                     "preset": preset,
                     "mode": "research" if research_mode else "chat",
+                    "deep_search": deep_search and not research_mode,
                 },
                 timeout=130,
             )

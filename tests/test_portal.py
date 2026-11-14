@@ -175,6 +175,8 @@ async def test_ecoaire_draft_guides_live_agent_requests(
         free_model = True
 
         async def complete(self, messages, response_format):
+            if response_format["json_schema"]["name"] == "serp_result_summary":
+                return completion_result({"learnings": [], "followUpQuestions": []})
             assert response_format["json_schema"]["name"] == "serp_queries"
             assert "Crayfish access" in messages[-1]["content"]
             assert "Submerged plant growth" in messages[-1]["content"]

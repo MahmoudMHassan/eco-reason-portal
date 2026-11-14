@@ -29,6 +29,15 @@ COMPARISON_GAP = "A passage-backed comparison is needed before drawing a conclus
 LITERATURE_GAP = (
     "A literature overview needs source-backed findings across the relevant studies."
 )
+EXTRACTION_PAPER_LIMIT = 5
+BOUNDED_DISCOVERY_TIMEOUT = 45
+MODEL_ERRORS = (
+    json.JSONDecodeError,
+    OutputParserException,
+    OpenRouterError,
+    RequestError,
+    TimeoutError,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +46,7 @@ class RunState(TypedDict, total=False):
     message: str
     preset: str | None
     mode: str
+    deep_search: bool
     chat_answer: dict | None
     chat_history: list[dict[str, str]]
     case: str | None
@@ -62,6 +72,7 @@ class LocalSearch:
         self.corpus = corpus
         self.hybrid = hybrid
         self.hits = {}
+        self._query_hits = {}
 
     async def search(self, query, timeout=15000, limit=10):
         limit = min(limit, 6)
@@ -73,6 +84,7 @@ class LocalSearch:
         if not hits:
             hits = await asyncio.to_thread(self.corpus.search, query, limit)
         self.hits.update({hit["paper_id"]: hit for hit in hits})
+        self._query_hits[" ".join(query.casefold().split())] = hits
         return {
             "payload": {
                 "items": [
@@ -85,6 +97,21 @@ class LocalSearch:
                 ]
             }
         }
+
+    def ranked_hits(self):
+        scores = defaultdict(float)
+        best_passage = {}
+        for query in sorted(self._query_hits):
+            for rank, hit in enumerate(self._query_hits[query], start=1):
+                paper = hit["paper_id"]
+                # Fuse ranks across queries. Scores from different queries are not comparable.
+                scores[paper] += 1 / (60 + rank)
+                if paper not in best_passage or rank < best_passage[paper][0]:
+                    best_passage[paper] = (rank, hit)
+        papers = sorted(
+            scores, key=lambda paper: (-scores[paper], best_passage[paper][0], paper)
+        )
+        return [best_passage[paper][1] for paper in papers]
 
 
 def source_passages(corpus, hits, query):
@@ -119,6 +146,13 @@ def provider_status(error):
     except (ValueError, TypeError, KeyError):
         return 200
     return code if 400 <= code < 600 else 200
+
+
+def recoverable_model_error(error):
+    if isinstance(error, OpenRouterError):
+        status = provider_status(error)
+        return status in {200, 408, 429} or 500 <= status < 600
+    return isinstance(error, MODEL_ERRORS)
 
 
 def upstream_rate_limit(error):
@@ -229,7 +263,13 @@ class LiveModels:
                 type(error).__name__,
             )
             raise error
-        return response["parsed"]
+        parsed = response["parsed"]
+        if parsed is None or response["raw"].response_metadata.get("finish_reason") in {
+            "error",
+            "content_filter",
+        }:
+            raise OutputParserException(f"The {role} model returned no usable output.")
+        return parsed
 
     async def chat(self, question, history, sources):
         model = self.models["extraction"]
@@ -381,12 +421,17 @@ def curated_evidence(case):
 def validate_comparisons(extraction, passages):
     by_id = {passage["id"]: passage for passage in passages}
     rows = []
+    papers = set()
     for item in extraction.comparisons[:6]:
         passage = by_id.get(item.passage_id)
         if not passage or len(item.quote.strip()) < 16:
             continue
         if " ".join(item.quote.split()) not in " ".join(passage["text"].split()):
             continue
+        paper = passage["doi"] or passage["title"]
+        if paper in papers:
+            continue
+        papers.add(paper)
         rows.append(
             {
                 **item.model_dump(exclude={"passage_id"}),
@@ -486,42 +531,56 @@ def build_workflow(corpus, reviews, checkpointer, models=None, hybrid=None):
         )
         search = LocalSearch(corpus, hybrid)
         use_live = models is not None and not state.get("case")
-        if use_live and request["intent"] == "search":
+        live_search = use_live and request["intent"] == "search"
+        deep_chat = state.get("mode") == "chat" and state.get("deep_search", False)
+        if live_search:
             history = state.get("chat_history", [])
             if state.get("mode") == "chat" and history and len(query.split()) <= 6:
                 target_query = f"{history[-1]['question']} {query}"
-            await search.search(target_query)
-            if not search.hits and target_query != state["message"]:
-                await search.search(state["message"])
-            return {"hits": list(search.hits.values())}
+            if not deep_chat:
+                await search.search(target_query)
+                if not search.hits and target_query != state["message"]:
+                    await search.search(state["message"])
+                return {"hits": list(search.hits.values())}
 
-        free_turn = use_live and models.free_model
-        rounds = 5 if use_live and not free_turn else 1
-        try:
-            await deep_research(
-                target_query,
-                breadth=rounds,
-                depth=rounds,
-                search=search,
-                completion=models.complete
-                if use_live
-                else offline_completion(target_query if record else query),
-                summarize_leaves=not free_turn,
+        bounded = use_live and (models.free_model or deep_chat)
+        rounds = 1
+        if use_live:
+            rounds = 2 if bounded else 5
+        fallback = False
+
+        def keep_partial_results(error):
+            nonlocal fallback
+            if not recoverable_model_error(error):
+                return False
+            fallback = True
+            logger.warning(
+                "DeepResearch step could not finish (%s).", type(error).__name__
             )
-        except (json.JSONDecodeError, OutputParserException):
-            if not use_live:
-                raise
-            if not search.hits:
-                fallback_query = (
-                    query if request["intent"] == "follow-up" else state["message"]
+            return True
+
+        try:
+            async with asyncio.timeout(BOUNDED_DISCOVERY_TIMEOUT if bounded else None):
+                await deep_research(
+                    target_query,
+                    breadth=rounds,
+                    depth=rounds,
+                    search=search,
+                    completion=models.complete
+                    if use_live
+                    else offline_completion(target_query if record else query),
+                    summarize_leaves=not bounded,
+                    on_branch_error=keep_partial_results if use_live else None,
                 )
-                if record:
-                    fallback_query = record.search_query(
-                        fallback_query, request["context"]
-                    )
-                await search.search(fallback_query)
-            return {"hits": list(search.hits.values())[:8], "discovery_fallback": True}
-        return {"hits": list(search.hits.values())[:8]}
+        except MODEL_ERRORS as error:
+            if not use_live or not keep_partial_results(error):
+                raise
+        if use_live and not search.hits:
+            fallback = True
+            await search.search(target_query)
+            if live_search and not search.hits and target_query != state["message"]:
+                await search.search(state["message"])
+        return {"hits": search.ranked_hits()[:8], "discovery_fallback": fallback}
 
     async def answer_chat(state):
         passages = await asyncio.to_thread(
@@ -670,38 +729,46 @@ def build_workflow(corpus, reviews, checkpointer, models=None, hybrid=None):
         passages = await asyncio.to_thread(
             source_passages,
             corpus,
-            state["hits"][: 3 if models.free_model else 5],
+            state["hits"][:EXTRACTION_PAPER_LIMIT],
             state["request"]["query"],
         )
         gate = asyncio.Semaphore(3)
 
         async def extract_paper(sources):
-            async with gate:
-                output = await models.structured(
-                    "extraction",
-                    Extraction,
-                    "Extract reported comparisons and relevant proposed mechanisms. "
-                    "Cite one exact supporting quote per entry. "
-                    "Distinguish hypotheses, observations and experiments. Keep fields brief "
-                    "and include at most one entry per paper. "
-                    "Use an empty list for irrelevant material.",
-                    {"request": target, "passages": sources},
+            try:
+                async with gate:
+                    output = await models.structured(
+                        "extraction",
+                        Extraction,
+                        "Extract reported comparisons and relevant proposed mechanisms. "
+                        "Cite one exact supporting quote per entry. "
+                        "Distinguish hypotheses, observations and experiments. Keep fields brief "
+                        "and include at most one entry per paper. "
+                        "Use an empty list for irrelevant material.",
+                        {"request": target, "passages": sources},
+                    )
+            except MODEL_ERRORS as error:
+                if not recoverable_model_error(error):
+                    raise
+                logger.warning(
+                    "Evidence extraction could not finish (%s).", type(error).__name__
                 )
+                return None
             return validate_comparisons(output, sources)
 
         if models.free_model:
-            try:
-                return {"evidence": await extract_paper(passages) if passages else []}
-            except OutputParserException:
-                return {"evidence": [], "extraction_failed": True}
-
-        by_paper = defaultdict(list)
-        for passage in passages:
-            by_paper[passage["doi"] or passage["title"]].append(passage)
-        results = await asyncio.gather(
-            *(extract_paper(sources) for sources in by_paper.values())
-        )
-        return {"evidence": [item for group in results for item in group]}
+            results = [await extract_paper(passages)] if passages else []
+        else:
+            by_paper = defaultdict(list)
+            for passage in passages:
+                by_paper[passage["doi"] or passage["title"]].append(passage)
+            results = await asyncio.gather(
+                *(extract_paper(sources) for sources in by_paper.values())
+            )
+        return {
+            "evidence": [item for group in results if group for item in group],
+            "extraction_failed": None in results,
+        }
 
     async def assess(state):
         evidence = state["evidence"]
@@ -758,30 +825,44 @@ def build_workflow(corpus, reviews, checkpointer, models=None, hybrid=None):
                 ],
             )
         elif models is not None and evidence:
-            assessment = await models.structured(
-                "assessment",
-                Assessment,
-                "Assess applicability to the requested context using only the supplied evidence. "
-                "Separate association from causal effects, report uncertainty and missing tests. "
-                "Keep the summary to two sentences and propose at most two narrowly scoped "
-                "claims with evidence_ids. Use no external citations.",
+            evidence_dois = {row["doi"] for row in evidence}
+            prior_reviews = [
                 {
-                    "request": record.agent_context(state["request"]["context"])
-                    if record
-                    else state["request"],
-                    "evidence": evidence,
-                    "prior_reviews": [
-                        {
-                            key: claim[key]
-                            for key in ("source", "target", "status", "scope", "reason")
-                        }
-                        for claim in await reviews.get(state["workspace"])
-                        if claim["status"] != "proposed"
-                        and {row["doi"] for row in claim["evidence"]}
-                        & {row["doi"] for row in evidence}
-                    ],
-                },
-            )
+                    key: claim[key]
+                    for key in ("source", "target", "status", "scope", "reason")
+                }
+                for claim in await reviews.get(state["workspace"])
+                if claim["status"] != "proposed"
+                and evidence_dois.intersection(row["doi"] for row in claim["evidence"])
+            ]
+            try:
+                assessment = await models.structured(
+                    "assessment",
+                    Assessment,
+                    "Assess applicability to the requested context using only the supplied evidence. "
+                    "Separate association from causal effects, report uncertainty and missing tests. "
+                    "Keep the summary to two sentences and propose at most two narrowly scoped "
+                    "claims with evidence_ids. Use no external citations.",
+                    {
+                        "request": record.agent_context(state["request"]["context"])
+                        if record
+                        else state["request"],
+                        "evidence": evidence,
+                        "prior_reviews": prior_reviews,
+                    },
+                )
+            except MODEL_ERRORS as error:
+                if not recoverable_model_error(error):
+                    raise
+                logger.warning(
+                    "Evidence assessment could not finish (%s).", type(error).__name__
+                )
+                assessment = Assessment(
+                    verdict="insufficient",
+                    summary="The assessment model could not finish. The extracted evidence is available for review.",
+                    gap="Applicability to the requested setting still needs assessment.",
+                    claims=[],
+                )
         else:
             literature_search = state["request"]["intent"] == "search"
             summary = (
@@ -791,7 +872,7 @@ def build_workflow(corpus, reviews, checkpointer, models=None, hybrid=None):
             )
             gap = LITERATURE_GAP if literature_search else COMPARISON_GAP
             if state.get("extraction_failed"):
-                summary = "The extraction model returned an incomplete response. The retrieved passages are available for review."
+                summary = "The extraction model could not finish. The retrieved passages are available for review."
             elif models is None and state["hits"]:
                 summary = "Local search returned candidate papers. This offline run can surface sources for inspection."
                 gap = "Live mode can extract findings from these papers and synthesize the evidence."

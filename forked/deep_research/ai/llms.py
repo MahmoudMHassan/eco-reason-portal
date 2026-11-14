@@ -4,6 +4,8 @@ import os
 from copy import deepcopy
 from types import SimpleNamespace
 
+from langchain_core.exceptions import OutputParserException
+
 NEMOTRON_FREE = "nvidia/nemotron-3.5-super-vl:free"
 
 
@@ -62,6 +64,10 @@ def discovery_completion(max_tokens=4096):
         reply = await model.ainvoke(
             messages, response_format=strict_format(response_format)
         )
+        if reply.response_metadata.get("finish_reason") in {"error", "content_filter"}:
+            raise OutputParserException(
+                "The discovery model stopped before returning a usable result."
+            )
         return SimpleNamespace(choices=[SimpleNamespace(message=reply)])
 
     return complete
